@@ -1,6 +1,10 @@
 # Storidian
 ## Assuredly self-hosted (Project in Planning)
 
+![image](https://github.com/user-attachments/assets/b26fac2d-4db3-43f5-b72d-544dfd9409a9)
+
+
+
 ## What is Storidian?
 Storidian will be an open-source, self-hosted file storage application that puts you in complete control of your digital assets. Built with security and simplicity as core principles, Storidian will empower users to create personal cloud storage solutions without compromising on privacy or functionality.
 
