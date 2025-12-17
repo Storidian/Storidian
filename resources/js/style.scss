@@ -1,0 +1,22 @@
+@import url("https://fonts.googleapis.com/css2?family=Outfit:wght@100..900&display=swap");
+
+:root {
+  --primary-color: #3b82f6;
+  --primary-color-hover: #2563eb;
+  --text-color: #1f2937;
+  --text-color-muted: #6b7280;
+  --bg-color: #f9fafb;
+  --card-bg: #ffffff;
+  --border-color: #e5e7eb;
+}
+
+body {
+  font-family: "Outfit", sans-serif;
+  background: var(--bg-color);
+  color: var(--text-color);
+}
+
+#app {
+  min-height: 100vh;
+}
+

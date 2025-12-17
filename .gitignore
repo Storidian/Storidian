@@ -1,0 +1,39 @@
+# Laravel
+/node_modules
+/public/build
+/public/hot
+/public/storage
+/storage/*.key
+/vendor
+.env
+.env.backup
+.env.production
+.env.runtime
+.phpunit.result.cache
+Homestead.json
+Homestead.yaml
+auth.json
+npm-debug.log
+yarn-error.log
+
+# IDE
+/.idea
+/.fleet
+/.vscode
+*.swp
+*.swo
+.DS_Store
+
+# SQLite
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+
+# Logs
+/storage/logs/*.log
+
+# Cache
+/bootstrap/cache/*
+!/bootstrap/cache/.gitignore
+

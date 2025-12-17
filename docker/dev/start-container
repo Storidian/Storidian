@@ -1,0 +1,170 @@
+#!/bin/sh
+
+echo "Storidian Development is starting..."
+echo "================================================"
+echo "[DEVELOPMENT MODE]"
+echo "================================================"
+
+export APP_URL=/
+export ASSET_URL=/
+
+# Ensure storage directories exist (for mounted volumes)
+echo "Ensuring storage directories exist..."
+mkdir -p /var/www/html/storage/app/private
+mkdir -p /var/www/html/storage/app/public
+mkdir -p /var/www/html/storage/app/uploads
+mkdir -p /var/www/html/storage/framework/cache
+mkdir -p /var/www/html/storage/framework/sessions
+mkdir -p /var/www/html/storage/framework/views
+mkdir -p /var/www/html/storage/logs
+mkdir -p /var/www/html/storage/database
+
+# Set correct permissions on storage directory
+echo "Setting storage permissions..."
+chown -R storidian:storidian /var/www/html/storage
+
+# Make sure php-fpm run directory exists and has correct permissions
+mkdir -p /run/php
+chown -R storidian:storidian /run/php
+
+# Make sure public directory has correct permissions
+chown -R storidian:storidian /var/www/html/public
+
+# Fix ownership on named volumes (they start as root-owned)
+echo "Fixing volume permissions..."
+chown -R storidian:storidian /var/www/html/node_modules 2>/dev/null || true
+chown -R storidian:storidian /var/www/html/vendor 2>/dev/null || true
+chown -R storidian:storidian /var/www/html/storage/database 2>/dev/null || true
+
+# Install composer dependencies if vendor directory is missing or empty
+if [ ! -d /var/www/html/vendor ] || [ ! -f /var/www/html/vendor/autoload.php ]; then
+    echo "Installing composer dependencies..."
+    if ! su-exec storidian composer install --no-interaction; then
+        echo "ERROR: Composer install failed!"
+        exit 1
+    fi
+fi
+
+# Install npm dependencies if node_modules is missing, empty, or has wrong platform binaries
+NEED_NPM_INSTALL=false
+
+if [ ! -d /var/www/html/node_modules ] || [ -z "$(ls -A /var/www/html/node_modules 2>/dev/null)" ]; then
+    NEED_NPM_INSTALL=true
+    echo "node_modules missing or empty, will install..."
+elif [ ! -d /var/www/html/node_modules/@rollup/rollup-linux-arm64-musl ] && [ ! -d /var/www/html/node_modules/@rollup/rollup-linux-x64-musl ]; then
+    # node_modules exists but was installed on a different platform (e.g., macOS)
+    echo "node_modules was installed on a different platform, reinstalling for Alpine Linux..."
+    rm -rf /var/www/html/node_modules
+    NEED_NPM_INSTALL=true
+fi
+
+if [ "$NEED_NPM_INSTALL" = true ]; then
+    echo "Installing npm dependencies..."
+    if ! su-exec storidian npm install; then
+        echo "ERROR: npm install failed!"
+        exit 1
+    fi
+fi
+
+# Handle APP_KEY
+if [ -f /var/www/html/storage/app.key ]; then
+    echo "App key already exists in storage, loading..."
+    export APP_KEY=$(cat /var/www/html/storage/app.key)
+elif [ -f /var/www/html/.env ]; then
+    # Try to get APP_KEY from .env
+    APP_KEY_FROM_ENV=$(grep "^APP_KEY=" /var/www/html/.env | cut -d'=' -f2-)
+    if [ -n "$APP_KEY_FROM_ENV" ]; then
+        echo "App key found in .env, using it..."
+        export APP_KEY="$APP_KEY_FROM_ENV"
+    else
+        # Generate a new key
+        echo "Generating app key..."
+        su-exec storidian php artisan key:generate --force --show >/var/www/html/storage/app.key
+        echo "App key generated, loading..."
+        export APP_KEY=$(cat /var/www/html/storage/app.key)
+    fi
+else
+    # Generate a new key
+    echo "Generating app key..."
+    su-exec storidian php artisan key:generate --force --show >/var/www/html/storage/app.key
+    echo "App key generated, loading..."
+    export APP_KEY=$(cat /var/www/html/storage/app.key)
+fi
+
+# Handle JWT_SECRET
+if [ -f /var/www/html/storage/jwt.secret ]; then
+    echo "JWT secret already exists, loading..."
+    export JWT_SECRET=$(cat /var/www/html/storage/jwt.secret)
+elif [ -f /var/www/html/.env ]; then
+    # Try to get JWT_SECRET from .env
+    JWT_SECRET_FROM_ENV=$(grep "^JWT_SECRET=" /var/www/html/.env | cut -d'=' -f2-)
+    if [ -n "$JWT_SECRET_FROM_ENV" ]; then
+        echo "JWT secret found in .env, using it..."
+        export JWT_SECRET="$JWT_SECRET_FROM_ENV"
+    else
+        echo "Generating JWT secret..."
+        su-exec storidian php -r "echo base64_encode(random_bytes(32));" >/var/www/html/storage/jwt.secret
+        echo "JWT secret generated, loading..."
+        export JWT_SECRET=$(cat /var/www/html/storage/jwt.secret)
+    fi
+else
+    echo "Generating JWT secret..."
+    su-exec storidian php -r "echo base64_encode(random_bytes(32));" >/var/www/html/storage/jwt.secret
+    echo "JWT secret generated, loading..."
+    export JWT_SECRET=$(cat /var/www/html/storage/jwt.secret)
+fi
+
+# Set default DB_CONNECTION if not set
+if [ -z "$DB_CONNECTION" ]; then
+    echo "DB_CONNECTION environment variable not set, setting to sqlite..."
+    export DB_CONNECTION=sqlite
+fi
+
+# Set default DB_DATABASE if not set (use named volume path for WAL support)
+if [ -z "$DB_DATABASE" ]; then
+    export DB_DATABASE=/var/www/html/storage/database/database.sqlite
+fi
+
+# Create an environment file for cron jobs
+echo "Creating environment file for cron jobs..."
+env | grep -E "^(APP_|DB_|REDIS_|MAIL_|QUEUE_|JWT_|ASSET_)" > /var/www/html/.env.runtime
+
+# Create a temporary crontab file for Laravel scheduler
+echo "* * * * * cd /var/www/html && php artisan schedule:run >> /dev/null 2>&1" > /tmp/storidian-crontab
+
+# Prevent crontab from complaining about the cache directory
+mkdir -p /root/.cache/crontab
+
+# Install the crontab for the storidian user
+crontab -u storidian /tmp/storidian-crontab
+
+# Clean up
+rm /tmp/storidian-crontab
+
+# Always run migrations
+echo "Running migrations..."
+su-exec storidian php artisan migrate --force
+
+# Optionally run seeds (comment out if not needed)
+# echo "Running seeds..."
+# su-exec storidian php artisan db:seed --force
+
+echo "Clearing caches..."
+su-exec storidian php artisan view:clear
+su-exec storidian php artisan config:clear
+su-exec storidian php artisan route:clear
+su-exec storidian php artisan clear-compiled
+
+# Create storage symlink
+echo "Creating storage symlink..."
+rm -rf /var/www/html/public/storage 2>/dev/null || true
+cd /var/www/html/public
+ln -s ../storage/app/public storage
+cd /var/www/html
+
+# Ensure correct ownership
+chown -R storidian:storidian /var/www/html/storage/app/public
+
+echo "Starting services..."
+exec /usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf
+
