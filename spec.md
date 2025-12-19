@@ -374,11 +374,12 @@ Keys use prefixes for easy identification:
 #### Authorization Code Flow (Web & Mobile Apps)
 
 ```
-┌─────────┐                    ┌─────────────┐                 ┌──────────┐
-│  Client │                    │  Storidian  │                 │   User   │
-│  (App)  │                    │   (OAuth)   │                 │          │
-└────┬────┘                    └──────┬──────┘                 └────┬─────┘
+┌─────────┐                    ┌─────────────┐                  ┌──────────┐
+│  Client │                    │  Storidian  │                  │   User   │
+│  (App)  │                    │   (OAuth)   │                  │          │
+└────┬────┘                    └──────┬──────┘                  └────┬─────┘
      │                                │                              │
+     |  Open browser to:              │                              │
      │  GET /oauth/authorize          │                              │
      │  ?client_id=...                │                              │
      │  &redirect_uri=...             │                              │
@@ -453,19 +454,19 @@ User                    Web UI (SPA)              Storidian API
   │                         │                          │
   │  GET /oauth/authorize   │                          │
   │  (lands on API domain)  │                          │
-  │─────────────────────────────────────────────────────>
+  │──────────────────────────────────────────────────> │
   │                         │                          │
   │                         │    Show login form       │
   │                         │    (Blade template)      │
-  │<─────────────────────────────────────────────────────
+  │<───────────────────────────────────────────────────|
   │                         │                          │
   │  POST credentials       │                          │
   │  (directly to API)      │                          │
-  │─────────────────────────────────────────────────────>
+  │───────────────────────────────────────────────────>|
   │                         │                          │
   │  302 Redirect to SPA    │                          │
   │  ?code=AUTH_CODE        │                          │
-  │<─────────────────────────────────────────────────────
+  │<───────────────────────────────────────────────────|
   │                         │                          │
   │  Follow redirect        │                          │
   │────────────────────────>│                          │
@@ -485,7 +486,7 @@ User                    Web UI (SPA)              Storidian API
 Key points:
 - User credentials are entered on the **API domain**, not the SPA
 - The SPA never sees or handles the user's password
-- First-party client skips consent (user already trusts it)
+- First-party client skips consent (user trusted by the system)
 - Same flow works identically for mobile apps
 
 **Token Lifetimes:**
