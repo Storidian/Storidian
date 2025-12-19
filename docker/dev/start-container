@@ -45,18 +45,7 @@ if [ ! -d /var/www/html/vendor ] || [ ! -f /var/www/html/vendor/autoload.php ]; 
     fi
 fi
 
-# Install npm dependencies if node_modules is missing, empty, or has wrong platform binaries
-NEED_NPM_INSTALL=false
-
-if [ ! -d /var/www/html/node_modules ] || [ -z "$(ls -A /var/www/html/node_modules 2>/dev/null)" ]; then
-    NEED_NPM_INSTALL=true
-    echo "node_modules missing or empty, will install..."
-elif [ ! -d /var/www/html/node_modules/@rollup/rollup-linux-arm64-musl ] && [ ! -d /var/www/html/node_modules/@rollup/rollup-linux-x64-musl ]; then
-    # node_modules exists but was installed on a different platform (e.g., macOS)
-    echo "node_modules was installed on a different platform, reinstalling for Alpine Linux..."
-    rm -rf /var/www/html/node_modules
-    NEED_NPM_INSTALL=true
-fi
+NEED_NPM_INSTALL=true
 
 if [ "$NEED_NPM_INSTALL" = true ]; then
     echo "Installing npm dependencies..."
