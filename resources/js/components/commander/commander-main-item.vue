@@ -1,6 +1,6 @@
 <script setup>
-  import { computed, ref, watch, defineEmits, defineExpose } from 'vue'
-  import { Folder, File, FileText, FileImage, FileVideo, FileAudio, FileCode, FileSpreadsheet, FileArchive, FileType } from 'lucide-vue-next'
+  import { computed, ref, watch } from 'vue'
+  import { getItemIcon } from '@/utils/filetypeIcons.js'
 
   const props = defineProps({
     item: {
@@ -9,82 +9,23 @@
     }
   })
 
-  const filetypeIcons = {
-    // Text documents
-    txt: FileText,
-    doc: FileText,
-    docx: FileText,
-    pdf: FileType,
-    rtf: FileText,
-    md: FileText,
+  const emit = defineEmits(['select', 'unselect', 'item-click'])
 
-    // Images
-    jpg: FileImage,
-    jpeg: FileImage,
-    png: FileImage,
-    gif: FileImage,
-    svg: FileImage,
-    webp: FileImage,
+  // Ref to the root element for marquee selection detection
+  const itemElement = ref(null)
 
-    // Video
-    mp4: FileVideo,
-    mov: FileVideo,
-    avi: FileVideo,
-    mkv: FileVideo,
-    webm: FileVideo,
-
-    // Audio
-    mp3: FileAudio,
-    wav: FileAudio,
-    flac: FileAudio,
-    aac: FileAudio,
-    ogg: FileAudio,
-
-    // Code
-    js: FileCode,
-    ts: FileCode,
-    vue: FileCode,
-    html: FileCode,
-    css: FileCode,
-    json: FileCode,
-    php: FileCode,
-    py: FileCode,
-
-    // Spreadsheets
-    xls: FileSpreadsheet,
-    xlsx: FileSpreadsheet,
-    csv: FileSpreadsheet,
-
-    // Archives
-    zip: FileArchive,
-    rar: FileArchive,
-    tar: FileArchive,
-    gz: FileArchive,
-    '7z': FileArchive
-  }
-
-  const icon = computed(() => {
-    if (props.item.type === 'folder') {
-      return Folder
-    }
-
-    if (props.item.filetype && filetypeIcons[props.item.filetype]) {
-      return filetypeIcons[props.item.filetype]
-    }
-
-    return File
-  })
-
+  // Selection state
   const selected = ref(false)
 
-  const onClick = () => {
-    if (selected.value) {
-      unselect()
-    } else {
-      select()
-    }
+  // Get the appropriate icon for this item
+  const icon = computed(() => getItemIcon(props.item))
+
+  // Click handler - delegates to parent for selection logic
+  const onClick = (e) => {
+    emit('item-click', { item: props.item, shiftKey: e.shiftKey })
   }
 
+  // Selection methods
   const select = () => {
     selected.value = true
   }
@@ -93,24 +34,31 @@
     selected.value = false
   }
 
+  const isSelected = () => {
+    return selected.value
+  }
+
+  // Expose methods and refs for parent component
   defineExpose({
     select,
-    unselect
+    unselect,
+    isSelected,
+    itemElement
   })
 
-  const emit = defineEmits(['select', 'unselect'])
-
-  watch(selected, newVal => {
-    if (newVal) {
-      emit('select', props.item)
-    } else {
-      emit('unselect', props.item)
-    }
+  // Emit events when selection changes
+  watch(selected, (newVal) => {
+    emit(newVal ? 'select' : 'unselect', props.item)
   })
 </script>
 
 <template>
-  <div class="commander-main-item" @click="onClick" :class="{ selected: selected }">
+  <div 
+    ref="itemElement" 
+    class="commander-main-item" 
+    :class="{ selected }"
+    @click="onClick"
+  >
     <component :is="icon" class="commander-main-item-icon" />
     <span class="commander-main-item-name">{{ item.name }}</span>
   </div>
@@ -128,6 +76,7 @@
     aspect-ratio: 1/1;
     cursor: pointer;
     transition: all 0.3s ease;
+    user-select: none;
 
     .commander-main-item-icon {
       width: 48px;
@@ -150,9 +99,11 @@
 
     &.selected {
       background: linear-gradient(to bottom, #d34225, #d34225);
+      
       .commander-main-item-icon {
         color: #fff;
       }
+      
       .commander-main-item-name {
         color: #fff;
       }
