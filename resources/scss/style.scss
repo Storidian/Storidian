@@ -1,5 +1,6 @@
 @import url("https://fonts.googleapis.com/css2?family=Outfit:wght@100..900&display=swap");
 
+
 :root {
   --primary-color: #3b82f6;
   --primary-color-hover: #2563eb;
@@ -14,6 +15,11 @@ body {
   font-family: "Outfit", sans-serif;
   background: var(--bg-color);
   color: var(--text-color);
+  background-image: url('../images/default-background.jpg');
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+
 }
 
 #app {

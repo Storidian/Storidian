@@ -1,25 +1,20 @@
 <script setup>
-  //import logo from resources/images/storidian-logo.png
-  import logo from '../images/storidian-logo.png'
+  import Commander from './components/commander/commander.vue'
 </script>
 
 <template>
-  <div class="container py-5">
-    <div class="row justify-content-center">
-      <div class="col-md-8">
-        <div class="card">
-          <div class="card-body text-center">
-            <img :src="logo" alt="Storidian Logo" class="logo">
-          </div>
-        </div>
-      </div>
-    </div>
+  <div class="app-wrapper">
+    <Commander />
   </div>
 </template>
 
-
-<style >
-.logo {
-  height: 60px;
-}
+<style>
+  .logo {
+    height: 60px;
+  }
+  .app-wrapper {
+    height: 100vh;
+    width: 100vw;
+    padding: 20px;
+  }
 </style>
