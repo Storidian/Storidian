@@ -128,6 +128,7 @@
     height: fit-content;
     width: var(--search-width);
     box-sizing: border-box;
+    pointer-events: none;
 
     opacity: 0;
     transform: translateY(-10px);
@@ -136,6 +137,7 @@
     &.visible {
       opacity: 1;
       transform: translateY(0);
+      pointer-events: auto;
     }
 
     .commander-search-result-item {

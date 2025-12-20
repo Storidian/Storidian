@@ -1,8 +1,8 @@
 # Storidian Technical Specification
 
 > **Version:** 0.1.0-draft  
-> **Last Updated:** 2024-12-18  
-> **Status:** Planning Phase
+> **Last Updated:** 20/12/2025  
+> **Status:** Models and migrations are in place, but the API is not yet implemented.
 
 ## Table of Contents
 
@@ -54,19 +54,26 @@ Storidian is a self-hosted file storage platform that prioritizes user control, 
 │  (Vue.js)   │   (Swift)   │  (Kotlin)   │ (System)    │ Clients │
 └──────┬──────┴──────┬──────┴──────┬──────┴──────┬──────┴────┬────┘
        │             │             │             │           │
-       └─────────────┴─────────────┴─────────────┴───────────┘
-                                   │
-                    ┌──────────────▼──────────────┐
-                    │         REST API            │
-                    │     (Laravel + JWT)         │
-                    └──────────────┬──────────────┘
-                                   │
-       ┌───────────────────────────┼───────────────────────────┐
-       │                           │                           │
-┌──────▼──────┐          ┌─────────▼─────────┐        ┌────────▼────────┐
-│   Storage   │          │     Database      │        │  Queue Workers  │
-│  (Flysystem)│          │   (PostgreSQL)    │        │    (Redis)      │
-└──────┬──────┘          └───────────────────┘        └─────────────────┘
+       └─────────────┴──────┬──────┴─────────────┴───────────┘
+                            │
+         ┌──────────────────┴──────────────────┐
+         │            Reverse Proxy            │
+         │              (Nginx)                │
+         └──────────┬───────────────┬──────────┘
+                    │               │
+         ┌──────────▼───────┐  ┌────▼─────────────┐
+         │    REST API      │  │      tusd        │
+         │  (Laravel + JWT) │  │ (Upload Server)  │
+         └──────────┬───────┘  └────┬─────────────┘
+                    │               │ HTTP Hooks
+                    │◄──────────────┘
+                    │
+       ┌────────────┼────────────────────────────┐
+       │            │                            │
+┌──────▼──────┐  ┌──▼──────────────┐    ┌────────▼────────┐
+│   Storage   │  │    Database     │    │  Queue Workers  │
+│  (Flysystem)│  │  (PostgreSQL)   │    │    (Redis)      │
+└──────┬──────┘  └─────────────────┘    └─────────────────┘
        │
        ├── Local Disk
        ├── S3 / MinIO
@@ -82,9 +89,73 @@ Storidian is a self-hosted file storage platform that prioritizes user control, 
 | Database | PostgreSQL (default) | Metadata, user data, relationships |
 | Cache | Redis | Session, queue, cache |
 | Storage | Flysystem | File storage abstraction |
+| Upload Server | tusd | Resumable file uploads (tus protocol) |
 | Queue | Laravel Queues | Background job processing |
 | Web UI | Vue.js 3 + Vite | Single-page application |
 | Auth | php-open-source-saver/jwt-auth | JWT token management |
+
+### Infrastructure: tusd Setup
+
+tusd is bundled in the Docker container and managed by supervisord.
+
+#### Docker Installation
+
+```dockerfile
+# Download and install tusd for the correct architecture
+ENV TUSD_VERSION=2.6.0
+RUN TUSD_ARCH="${TARGETARCH}" && \
+    curl -L -o /tmp/tusd.tar.gz \
+      "https://github.com/tus/tusd/releases/download/v${TUSD_VERSION}/tusd_linux_${TUSD_ARCH}.tar.gz" && \
+    tar -xzf /tmp/tusd.tar.gz -C /tmp && \
+    mv /tmp/tusd_linux_${TUSD_ARCH}/tusd /usr/local/bin/tusd && \
+    chmod +x /usr/local/bin/tusd
+```
+
+#### Reverse Proxy (Nginx)
+
+Nginx routes upload requests to tusd before Laravel, and supports X-Accel-Redirect for efficient file downloads:
+
+```nginx
+server {
+    listen 80;
+    server_name _;
+    root /var/www/html/public;
+    index index.php;
+
+    client_max_body_size 0;  # Disable size limit (tusd handles chunking)
+
+    # Proxy tusd uploads - must be handled BEFORE Laravel
+    location /files/ {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        # Required for tusd
+        proxy_request_buffering off;
+        proxy_buffering off;
+        proxy_http_version 1.1;
+    }
+
+    # Internal location for X-Accel-Redirect file serving
+    location /internal-files/ {
+        internal;
+        alias /var/www/html/storage/app/;
+    }
+
+    # Handle everything else with Laravel
+    location / {
+        try_files $uri $uri/ /index.php?$query_string;
+    }
+
+    location ~ \.php$ {
+        fastcgi_pass unix:/run/php/php-fpm.sock;
+        fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;
+        include fastcgi_params;
+    }
+}
+```
 
 ---
 
@@ -574,7 +645,6 @@ All responses follow a consistent structure:
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/files` | List files (with filters) |
-| POST | `/files` | Upload file |
 | GET | `/files/{id}` | Get file metadata |
 | PUT | `/files/{id}` | Update file metadata |
 | DELETE | `/files/{id}` | Soft delete file |
@@ -582,9 +652,17 @@ All responses follow a consistent structure:
 | GET | `/files/{id}/thumbnail` | Get thumbnail |
 | POST | `/files/{id}/move` | Move to folder |
 | POST | `/files/{id}/copy` | Copy file |
-| POST | `/files/upload/init` | Initialize chunked upload |
-| POST | `/files/upload/{upload_id}/chunk` | Upload chunk |
-| POST | `/files/upload/{upload_id}/complete` | Complete chunked upload |
+
+#### Uploads (tusd)
+
+File uploads are handled by tusd via the tus protocol at `/files/` (note: this path is proxied to tusd, separate from the REST API).
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/tusd-hooks` | Webhook handler for tusd events (internal only) |
+| GET | `/uploads/verify/{uploadId}` | Verify upload session is valid (for resume) |
+
+**Note:** The `/tusd-hooks` endpoint is called internally by the tusd server and validates that requests originate from localhost/internal networks. It does not use standard JWT authentication.
 
 #### Folders
 
@@ -769,6 +847,29 @@ Additional tables:
 | `created_at` | timestamp | |
 | `updated_at` | timestamp | |
 
+#### upload_sessions
+
+Tracks in-progress and completed tusd uploads.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | UUID | Primary key |
+| `upload_id` | string (unique) | tusd-generated upload ID (32-char hex) |
+| `user_id` | FK | Uploading user |
+| `folder_id` | FK (nullable) | Target folder (null = root) |
+| `filename` | string | Original filename |
+| `filesize` | bigint | File size in bytes |
+| `filetype` | string | MIME type |
+| `status` | enum | `pending`, `complete`, `failed` |
+| `file_id` | FK (nullable) | Created file record (after completion) |
+| `created_at` | timestamp | |
+| `updated_at` | timestamp | |
+
+**Notes:**
+- The `upload_id` is generated by tusd and used to correlate webhook events
+- Sessions with `pending` status older than 24h are cleaned up by `CleanOrphanedUploads` job
+- The `file_id` is populated by the `post-finish` webhook handler
+
 #### system_settings
 
 | Column | Type | Description |
@@ -838,58 +939,219 @@ Admins configure storage via the admin UI. Configuration stored in `system_setti
 }
 ```
 
-### Chunked Uploads
+### File Uploads (tusd)
 
-For large files, the API supports chunked uploads:
+Storidian uses [tusd](https://github.com/tus/tusd) for file uploads, implementing the [tus resumable upload protocol](https://tus.io/). This provides:
 
-1. **Initialize:** `POST /files/upload/init` with file metadata → returns `upload_id`
-2. **Upload chunks:** `POST /files/upload/{upload_id}/chunk` with chunk data and index
-3. **Complete:** `POST /files/upload/{upload_id}/complete` → assembles chunks, creates file record
+- **Resumable uploads** - Users can resume interrupted uploads
+- **Chunked transfers** - Large files are split into manageable chunks (20MB default)
+- **Progress tracking** - Real-time upload progress via the tus protocol
+- **Automatic retries** - Built-in retry logic for transient failures
 
-Chunk size: 5MB default (configurable)
+#### Architecture
+
+```
+┌─────────────────┐      ┌─────────────────┐      ┌─────────────────┐
+│   Frontend      │      │  Reverse Proxy  │      │     tusd        │
+│   (tus-js)      │─────▶│     (Nginx)     │─────▶│    Server       │
+└─────────────────┘      └─────────────────┘      └─────────────────┘
+                                │                        │
+                                │                        │ HTTP Hooks
+                                ▼                        ▼
+                         ┌─────────────────┐      ┌─────────────────┐
+                         │  Laravel API    │◀─────│    Webhook      │
+                         │    Server       │      │    Handler      │
+                         └─────────────────┘      └─────────────────┘
+```
+
+#### How It Works
+
+1. **Reverse proxy routing** - Nginx routes `/files/*` to tusd (port 8080), all other requests to Laravel
+2. **JWT validation** - tusd sends a `pre-create` hook; Laravel validates the JWT from the request headers
+3. **Upload tracking** - On `post-create` hook, Laravel creates an `UploadSession` record
+4. **File processing** - On `post-finish` hook, Laravel creates the `File` record and moves to permanent storage
+
+#### tusd Configuration
+
+tusd runs as a daemon managed by supervisord:
+
+```ini
+[program:tusd]
+command=/usr/local/bin/tusd -behind-proxy -hooks-http http://localhost/api/tusd-hooks -upload-dir /var/www/html/storage/app/uploads -base-path /files/
+```
+
+**Key flags:**
+- `-behind-proxy` - Running behind Nginx reverse proxy
+- `-hooks-http` - URL for webhook notifications to Laravel
+- `-upload-dir` - Temporary storage for uploads in progress
+- `-base-path` - URL path matching the Nginx location
+
+#### Webhook Hooks
+
+| Hook | When | Purpose |
+|------|------|---------|
+| `pre-create` | Before upload starts | Validate JWT, check quotas/limits |
+| `post-create` | After upload ID assigned | Create `UploadSession` record |
+| `post-finish` | After upload completes | Create `File` record, move to storage |
+| `post-terminate` | After upload cancelled | Cleanup `UploadSession` and temp files |
+
+#### Frontend Integration
+
+Uses [tus-js-client](https://github.com/tus/tus-js-client):
+
+```javascript
+import * as tus from 'tus-js-client'
+
+const upload = new tus.Upload(file, {
+    endpoint: '/files/',
+    retryDelays: [0, 1000, 3000, 5000],
+    chunkSize: 20 * 1024 * 1024, // 20MB
+    metadata: {
+        filename: file.name,
+        filetype: file.type,
+        folderId: parentFolderId // optional
+    },
+    headers: {
+        Authorization: `Bearer ${token}`
+    },
+    onProgress: (bytesUploaded, bytesTotal) => {
+        const percentage = (bytesUploaded / bytesTotal * 100).toFixed(1)
+    },
+    onSuccess: () => {
+        const uploadId = upload.url.split('/').pop()
+        // Upload complete, file record already created via webhook
+    }
+})
+
+// Check for previous uploads to resume
+upload.findPreviousUploads().then(previousUploads => {
+    if (previousUploads.length > 0) {
+        upload.resumeFromPreviousUpload(previousUploads[0])
+    }
+    upload.start()
+})
+```
+
+#### Token Refresh During Long Uploads
+
+For uploads that exceed the JWT expiration time, the tus client refreshes tokens proactively:
+
+```javascript
+onBeforeRequest: function(req) {
+    const fiveMinutesFromNow = new Date(Date.now() + 5 * 60 * 1000)
+    if (tokenExpires < fiveMinutesFromNow) {
+        return refreshToken().then(newToken => {
+            req.setHeader('Authorization', `Bearer ${newToken}`)
+        })
+    }
+}
+```
 
 ---
 
 ## File Operations
 
-### Upload Flow
+### Upload Flow (via tusd)
 
 ```
-Client                          API                         Storage
-  │                              │                             │
-  │  POST /files                 │                             │
-  │  multipart/form-data         │                             │
-  │─────────────────────────────>│                             │
-  │                              │  Validate user quota        │
-  │                              │  Validate file size/type    │
-  │                              │                             │
-  │                              │  PUT file                   │
-  │                              │────────────────────────────>│
-  │                              │                             │
-  │                              │  Create file record         │
-  │                              │  Queue thumbnail job        │
-  │                              │                             │
-  │  { file: {...} }             │                             │
-  │<─────────────────────────────│                             │
+Client                    Nginx                 tusd                  Laravel
+  │                         │                     │                      │
+  │  POST /files/           │                     │                      │
+  │  (tus protocol)         │                     │                      │
+  │────────────────────────>│                     │                      │
+  │                         │  proxy to tusd      │                      │
+  │                         │────────────────────>│                      │
+  │                         │                     │                      │
+  │                         │                     │  pre-create hook     │
+  │                         │                     │─────────────────────>│
+  │                         │                     │                      │
+  │                         │                     │  Validate JWT        │
+  │                         │                     │  Check quota/limits  │
+  │                         │                     │                      │
+  │                         │                     │  { ok: true }        │
+  │                         │                     │<─────────────────────│
+  │                         │                     │                      │
+  │  201 Created            │                     │                      │
+  │  Location: /files/{id}  │                     │                      │
+  │<────────────────────────│                     │                      │
+  │                         │                     │                      │
+  │  PATCH /files/{id}      │                     │                      │
+  │  (file chunks)          │                     │                      │
+  │────────────────────────>│────────────────────>│                      │
+  │                         │                     │  (write to disk)     │
+  │  204 No Content         │                     │                      │
+  │<────────────────────────│                     │                      │
+  │                         │                     │                      │
+  │  (repeat for chunks)    │                     │                      │
+  │                         │                     │                      │
+  │                         │                     │  post-finish hook    │
+  │                         │                     │─────────────────────>│
+  │                         │                     │                      │
+  │                         │                     │  Create File record  │
+  │                         │                     │  Move to storage     │
+  │                         │                     │  Queue thumbnail job │
+  │                         │                     │                      │
+  │                         │                     │  { ok: true }        │
+  │                         │                     │<─────────────────────│
+```
+
+### Resume Flow
+
+When a client reconnects with a partially completed upload:
+
+```
+Client                    Nginx                 tusd                  Laravel
+  │                         │                     │                      │
+  │  HEAD /files/{id}       │                     │                      │
+  │────────────────────────>│────────────────────>│                      │
+  │                         │                     │                      │
+  │  200 OK                 │                     │                      │
+  │  Upload-Offset: 52428800│                     │                      │
+  │<────────────────────────│                     │                      │
+  │                         │                     │                      │
+  │  PATCH /files/{id}      │                     │                      │
+  │  Upload-Offset: 52428800│                     │                      │
+  │  (remaining chunks)     │                     │                      │
+  │────────────────────────>│────────────────────>│                      │
+  │                         │                     │                      │
+  │  (continues from offset)│                     │                      │
 ```
 
 ### Download Flow
 
+Downloads use **X-Accel-Redirect** for efficient file serving. Instead of PHP streaming the file, Nginx serves it directly:
+
 ```
-Client                          API                         Storage
-  │                              │                             │
-  │  GET /files/{id}/download    │                             │
-  │─────────────────────────────>│                             │
-  │                              │  Validate ownership/scope   │
-  │                              │                             │
-  │                              │  Get presigned URL (S3)     │
-  │                              │  OR stream file (local)     │
-  │                              │<────────────────────────────│
-  │                              │                             │
-  │  302 Redirect to presigned   │                             │
-  │  OR streamed file data       │                             │
-  │<─────────────────────────────│                             │
+Client                     Nginx                    Laravel                   Storage
+  │                          │                          │                        │
+  │  GET /files/{id}/download│                          │                        │
+  │─────────────────────────>│                          │                        │
+  │                          │  proxy to PHP-FPM        │                        │
+  │                          │─────────────────────────>│                        │
+  │                          │                          │                        │
+  │                          │                          │  Validate auth/scope   │
+  │                          │                          │                        │
+  │                          │  X-Accel-Redirect:       │                        │
+  │                          │  /internal-files/path    │                        │
+  │                          │<─────────────────────────│                        │
+  │                          │                          │                        │
+  │                          │  (PHP worker freed)      │                        │
+  │                          │                          │                        │
+  │                          │  Serve file directly     │                        │
+  │                          │<──────────────────────────────────────────────────│
+  │                          │                          │                        │
+  │  File stream (efficient) │                          │                        │
+  │<─────────────────────────│                          │                        │
 ```
+
+**For S3/remote storage:** Returns a 302 redirect to a presigned URL instead.
+
+**Benefits of X-Accel-Redirect:**
+- PHP doesn't stream the file — just returns a header
+- Nginx serves files directly from disk, highly optimized
+- PHP-FPM workers are freed immediately
+- Much better for large files and concurrent downloads
+- Lower memory usage under load
 
 ### Thumbnails & Previews
 
@@ -923,7 +1185,7 @@ Using Laravel Horizon with Redis:
 |-------|---------|---------|
 | `default` | General tasks | 2 |
 | `thumbnails` | Image/preview generation | 2 |
-| `uploads` | Chunked upload processing | 1 |
+| `storage` | File moves and storage operations | 1 |
 | `trash` | Trash purging | 1 |
 
 ### Scheduled Jobs
@@ -931,7 +1193,7 @@ Using Laravel Horizon with Redis:
 | Job | Schedule | Description |
 |-----|----------|-------------|
 | `PurgeTrash` | Daily | Permanently delete items older than `trash_purge_days` |
-| `CleanOrphanedChunks` | Hourly | Delete incomplete chunked uploads older than 24h |
+| `CleanOrphanedUploads` | Hourly | Delete incomplete tusd uploads and sessions older than 24h |
 | `CalculateUserQuotas` | Hourly | Update cached quota usage |
 | `PruneExpiredTokens` | Daily | Clean expired JWT refresh tokens |
 
@@ -990,7 +1252,7 @@ Using Laravel Horizon with Redis:
 
 **Features (v1):**
 - Browse files and folders
-- Upload photos/files from device
+- Upload photos/files from device (via tus protocol)
 - Download files for offline access
 - Basic file management (move, rename, delete)
 - Share sheet integration
@@ -1000,6 +1262,11 @@ Using Laravel Horizon with Redis:
 - SSO via ASWebAuthenticationSession
 - Biometric unlock for stored credentials
 
+**Uploads:**
+- Uses [TUSKit](https://github.com/tus/TUSKit) for resumable uploads
+- Background upload support via URLSession
+- Automatic resume on network reconnection
+
 ### Android App
 
 **Technology:** Kotlin + Jetpack Compose
@@ -1008,6 +1275,11 @@ Using Laravel Horizon with Redis:
 - Same feature set as iOS
 - Share intent integration
 - Background upload service
+
+**Uploads:**
+- Uses [tus-android-client](https://github.com/tus/tus-android-client) for resumable uploads
+- WorkManager integration for background uploads
+- Automatic resume on network reconnection
 
 ---
 
@@ -1172,8 +1444,14 @@ Storidian admin settings:
 - [ ] File model and migrations
 - [ ] Folder model with hierarchy
 - [ ] Storage abstraction (Flysystem)
-- [ ] Upload endpoint (single file)
-- [ ] Chunked uploads
+- [ ] tusd integration
+  - [ ] Docker configuration (tusd binary, supervisord)
+  - [ ] Nginx reverse proxy routing (`/files/*` → tusd)
+  - [ ] Webhook handler controller (`TusdHooksController`)
+  - [ ] Upload session tracking (`UploadSession` model)
+  - [ ] JWT validation in pre-create hook
+  - [ ] File record creation in post-finish hook
+- [ ] Frontend tus-js-client integration
 - [ ] Download endpoint
 - [ ] File metadata API
 - [ ] Basic CRUD operations

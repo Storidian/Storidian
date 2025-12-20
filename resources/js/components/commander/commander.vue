@@ -3,14 +3,25 @@
   import CommanderSearch from './commander-search.vue'
   import CommanderSidebar from './commander-sidebar.vue'
   import CommanderMain from './commander-main.vue'
+
+  defineProps({
+    username: {
+      type: String,
+      default: 'User'
+    },
+    currentFolder: {
+      type: String,
+      default: 'Home'
+    }
+  })
 </script>
 
 <template>
   <div class="commander">
-    <CommanderTitle username="Dean" current-folder="Home" />
+    <CommanderTitle :username="username" :current-folder="currentFolder" />
     <CommanderSearch />
     <div class="commander-content">
-      <CommanderSidebar />
+      <CommanderSidebar :username="username" />
       <CommanderMain />
     </div>
   </div>

@@ -1,11 +1,18 @@
 <script setup>
   import CommanderSidebarFooterItem from './commander-sidebar-footer-item.vue'
   import { User, Settings } from 'lucide-vue-next'
+
+  defineProps({
+    username: {
+      type: String,
+      default: 'User'
+    }
+  })
 </script>
 
 <template>
   <div class="commander-sidebar-footer">
-    <CommanderSidebarFooterItem label="Dean" :icon="User" />
+    <CommanderSidebarFooterItem :label="username" :icon="User" />
     <CommanderSidebarFooterItem label="Settings" :icon="Settings" />
   </div>
 </template>

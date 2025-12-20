@@ -1,20 +1,11 @@
 <script setup>
-  import Commander from './components/commander/commander.vue'
+import { RouterView } from 'vue-router'
 </script>
 
 <template>
-  <div class="app-wrapper">
-    <Commander />
-  </div>
+  <RouterView />
 </template>
 
 <style>
-  .logo {
-    height: 60px;
-  }
-  .app-wrapper {
-    height: 100vh;
-    width: 100vw;
-    padding: 20px;
-  }
+/* Global app styles are in scss/style.scss */
 </style>

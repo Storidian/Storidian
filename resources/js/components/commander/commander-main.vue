@@ -11,8 +11,11 @@
     { name: 'Projects', path: '/projects', type: 'folder' },
     { name: 'Videos', path: '/videos', type: 'folder' },
     { name: 'File.txt', path: '/file.txt', type: 'file', filetype: 'txt' },
+    { name: 'dean.png', path: '/dean.png', type: 'file', filetype: 'png', thumbnail: 'dean.png' },
     { name: 'File.pdf', path: '/file.pdf', type: 'file', filetype: 'pdf' },
-    { name: 'File.docx', path: '/file.docx', type: 'file', filetype: 'docx' }
+    { name: 'woman.png', path: '/woman.png', type: 'file', filetype: 'png', thumbnail: 'woman.png' },
+    { name: 'File.docx', path: '/file.docx', type: 'file', filetype: 'docx' },
+    { name: 'dog.png', path: '/dog.png', type: 'file', filetype: 'png', thumbnail: 'weird_dog.png' },
   ]
 
   // Refs

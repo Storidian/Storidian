@@ -10,7 +10,6 @@ WORKDIR /var/www/html
 
 ENV TZ=UTC
 ENV SUPERVISOR_PHP_FPM_COMMAND="/usr/sbin/php-fpm83 -F"
-ENV SUPERVISOR_CADDY_COMMAND="/usr/sbin/caddy run --config /etc/caddy/Caddyfile"
 ENV SUPERVISOR_PHP_USER="storidian"
 
 # Enable community repository for PHP packages
@@ -57,7 +56,7 @@ RUN apk add --no-cache \
     unzip \
     git \
     php83-fpm \
-    caddy \
+    nginx \
     nodejs \
     npm \
     && ln -s /usr/bin/php83 /usr/bin/php \
@@ -79,10 +78,10 @@ RUN TUSD_ARCH="${TARGETARCH}" && \
     rm -rf /tmp/tusd.tar.gz /tmp/tusd_linux_${TUSD_ARCH}
 
 # Create necessary directories
-RUN mkdir -p /run/php /var/www/html/public /etc/php83/php-fpm.d /etc/caddy
+RUN mkdir -p /run/php /run/nginx /var/www/html/public /etc/php83/php-fpm.d
 
 COPY ./www.conf /etc/php83/php-fpm.d/www.conf
-COPY ./Caddyfile /etc/caddy/Caddyfile
+COPY ./nginx.conf /etc/nginx/nginx.conf
 
 # Set timezone
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone

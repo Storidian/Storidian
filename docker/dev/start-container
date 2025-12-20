@@ -105,13 +105,38 @@ fi
 
 # Set default DB_CONNECTION if not set
 if [ -z "$DB_CONNECTION" ]; then
-    echo "DB_CONNECTION environment variable not set, setting to sqlite..."
-    export DB_CONNECTION=sqlite
+    # Check .env first
+    if [ -f /var/www/html/.env ]; then
+        DB_CONNECTION_FROM_ENV=$(grep "^DB_CONNECTION=" /var/www/html/.env | cut -d'=' -f2-)
+        if [ -n "$DB_CONNECTION_FROM_ENV" ]; then
+            echo "DB_CONNECTION found in .env, using it..."
+            export DB_CONNECTION="$DB_CONNECTION_FROM_ENV"
+        else
+            echo "DB_CONNECTION not set, defaulting to sqlite..."
+            export DB_CONNECTION=sqlite
+        fi
+    else
+        echo "DB_CONNECTION not set, defaulting to sqlite..."
+        export DB_CONNECTION=sqlite
+    fi
 fi
 
-# Set default DB_DATABASE if not set (use named volume path for WAL support)
+# Set default DB_DATABASE if not set (check .env first)
 if [ -z "$DB_DATABASE" ]; then
-    export DB_DATABASE=/var/www/html/storage/database/database.sqlite
+    # Check .env first
+    if [ -f /var/www/html/.env ]; then
+        DB_DATABASE_FROM_ENV=$(grep "^DB_DATABASE=" /var/www/html/.env | cut -d'=' -f2-)
+        if [ -n "$DB_DATABASE_FROM_ENV" ]; then
+            echo "DB_DATABASE found in .env, using it..."
+            export DB_DATABASE="$DB_DATABASE_FROM_ENV"
+        else
+            echo "DB_DATABASE not set, defaulting to storage path for WAL support..."
+            export DB_DATABASE=/var/www/html/storage/database/database.sqlite
+        fi
+    else
+        echo "DB_DATABASE not set, defaulting to storage path for WAL support..."
+        export DB_DATABASE=/var/www/html/storage/database/database.sqlite
+    fi
 fi
 
 # Create an environment file for cron jobs

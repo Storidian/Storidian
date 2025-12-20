@@ -2,6 +2,18 @@
   import CommanderSidebarSection from './commander-sidebar-section.vue'
   import CommanderSidebarFooter from './commander-sidebar-footer.vue'
   import { Home, Folder, Camera } from 'lucide-vue-next'
+  import { useAuthStore } from '@/stores/auth'
+
+  const authStore = useAuthStore()
+  const initials = authStore.initials
+  const firstName = authStore.firstName
+
+  defineProps({
+    username: {
+      type: String,
+      default: 'User'
+    }
+  })
 
   const favorites = [
     {
@@ -39,7 +51,7 @@
   <div class="commander-sidebar">
     <CommanderSidebarSection title="Favorites" :items="favorites" />
     <CommanderSidebarSection title="Shared with me" :items="sharedWithMe" class="mt-5" />
-    <CommanderSidebarFooter />
+    <CommanderSidebarFooter :username="firstName" />
   </div>
 </template>
 

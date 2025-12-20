@@ -21,7 +21,7 @@
   const icon = computed(() => getItemIcon(props.item))
 
   // Click handler - delegates to parent for selection logic
-  const onClick = (e) => {
+  const onClick = e => {
     emit('item-click', { item: props.item, shiftKey: e.shiftKey })
   }
 
@@ -47,19 +47,17 @@
   })
 
   // Emit events when selection changes
-  watch(selected, (newVal) => {
+  watch(selected, newVal => {
     emit(newVal ? 'select' : 'unselect', props.item)
   })
 </script>
 
 <template>
-  <div 
-    ref="itemElement" 
-    class="commander-main-item" 
-    :class="{ selected }"
-    @click="onClick"
-  >
-    <component :is="icon" class="commander-main-item-icon" />
+  <div ref="itemElement" class="commander-main-item" :class="{ selected }" @click="onClick">
+    <div class="commander-main-item-thumbnail" v-if="item.thumbnail">
+      <img :src="'/images/dev_icon_tests/' + item.thumbnail" />
+    </div>
+    <component :is="icon" class="commander-main-item-icon" v-else />
     <span class="commander-main-item-name">{{ item.name }}</span>
   </div>
 </template>
@@ -93,17 +91,38 @@
       transition: all 0.3s ease;
     }
 
+    .commander-main-item-thumbnail {
+      width: 48px;
+      height: 48px;
+      border-radius: 10px;
+      background-color: white;
+      overflow: hidden;
+
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .commander-main-item-thumbnail img {
+      max-width: 100%;
+      max-height: 100%;
+      width: auto;
+      height: auto;
+      object-fit: contain;
+      border-radius: 10px;
+    }
+
     &:hover {
       background: linear-gradient(to bottom, #f8f8f8, #fff);
     }
 
     &.selected {
       background: linear-gradient(to bottom, #d34225, #d34225);
-      
+
       .commander-main-item-icon {
         color: #fff;
       }
-      
+
       .commander-main-item-name {
         color: #fff;
       }
